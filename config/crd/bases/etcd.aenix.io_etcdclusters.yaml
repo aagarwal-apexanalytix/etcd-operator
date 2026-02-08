@@ -39,6 +39,27 @@ spec:
             spec:
               description: EtcdClusterSpec defines the desired state of EtcdCluster
               properties:
+                autoDefrag:
+                  description: AutoDefrag configures automatic defragmentation of etcd members.
+                  properties:
+                    enabled:
+                      default: false
+                      description: Enabled enables automatic defragmentation.
+                      type: boolean
+                    fragmentationPercent:
+                      default: 50
+                      description: FragmentationPercent is the fragmentation threshold (10-90) above which defrag is triggered.
+                      format: int32
+                      maximum: 90
+                      minimum: 10
+                      type: integer
+                    minIntervalMinutes:
+                      default: 60
+                      description: MinIntervalMinutes is the minimum time between defrag operations to prevent excessive defrag.
+                      format: int32
+                      minimum: 5
+                      type: integer
+                  type: object
                 headlessServiceTemplate:
                   description: HeadlessService defines the desired state of HeadlessService for etcd members. If not specified, default values will be used.
                   properties:
