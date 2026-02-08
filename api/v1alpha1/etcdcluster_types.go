@@ -61,7 +61,7 @@ type AutoDefragSpec struct {
 	// +optional
 	// +kubebuilder:default:=false
 	Enabled bool `json:"enabled,omitempty"`
-	// FragmentationPercent is the fragmentation threshold (0-100) above which defrag is triggered.
+	// FragmentationPercent is the fragmentation threshold (10-90) above which defrag is triggered.
 	// +optional
 	// +kubebuilder:default:=50
 	// +kubebuilder:validation:Minimum:=10

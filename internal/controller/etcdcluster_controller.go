@@ -161,21 +161,24 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		)
 		return r.updateStatus(ctx, instance)
 	}
-	// Clear stale splitbrain condition if cluster is now healthy
-	existingError := meta.FindStatusCondition(instance.Status.Conditions, etcdaenixiov1alpha1.EtcdConditionError)
-	if existingError != nil &&
-		existingError.Status == metav1.ConditionTrue &&
-		existingError.Reason == string(etcdaenixiov1alpha1.EtcdCondTypeSplitbrain) {
-		meta.SetStatusCondition(
-			&instance.Status.Conditions,
-			metav1.Condition{
-				Type:    etcdaenixiov1alpha1.EtcdConditionError,
-				Status:  metav1.ConditionFalse,
-				Reason:  string(etcdaenixiov1alpha1.EtcdCondTypeSplitbrainResolved),
-				Message: string(etcdaenixiov1alpha1.EtcdErrorCondSplitbrainResolvedMessage),
-			},
-		)
-		log.Info(ctx, "splitbrain condition cleared, all endpoints agree on cluster ID")
+	// Clear stale splitbrain condition only when we have positive evidence
+	// that endpoints are healthy (not just because endpoints were unreachable)
+	if state.endpointsFound && len(state.etcdStatuses) > 0 {
+		existingError := meta.FindStatusCondition(instance.Status.Conditions, etcdaenixiov1alpha1.EtcdConditionError)
+		if existingError != nil &&
+			existingError.Status == metav1.ConditionTrue &&
+			existingError.Reason == string(etcdaenixiov1alpha1.EtcdCondTypeSplitbrain) {
+			meta.SetStatusCondition(
+				&instance.Status.Conditions,
+				metav1.Condition{
+					Type:    etcdaenixiov1alpha1.EtcdConditionError,
+					Status:  metav1.ConditionFalse,
+					Reason:  string(etcdaenixiov1alpha1.EtcdCondTypeSplitbrainResolved),
+					Message: string(etcdaenixiov1alpha1.EtcdErrorCondSplitbrainResolvedMessage),
+				},
+			)
+			log.Info(ctx, "splitbrain condition cleared, all endpoints agree on cluster ID")
+		}
 	}
 	// fill conditions
 	if len(instance.Status.Conditions) == 0 {
@@ -728,7 +731,9 @@ func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *e
 
 	log.Info(ctx, "auto-defrag triggered", "targets", len(targets), "threshold", fragThreshold)
 
-	// Defrag each target sequentially
+	// Defrag each target sequentially, continuing on individual failures
+	var defragErrors []error
+	defragged := 0
 	for _, target := range targets {
 		if target.index >= len(singleClients) || singleClients[target.index] == nil {
 			continue
@@ -738,24 +743,27 @@ func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *e
 		_, err := singleClients[target.index].Defragment(defragCtx, target.endpoint)
 		cancel()
 		if err != nil {
-			log.Error(ctx, err, "defrag failed for member", "endpoint", target.endpoint)
-			return fmt.Errorf("defrag failed for %s: %w", target.endpoint, err)
+			log.Error(ctx, err, "defrag failed for member, continuing with remaining members", "endpoint", target.endpoint)
+			defragErrors = append(defragErrors, fmt.Errorf("defrag failed for %s: %w", target.endpoint, err))
+			continue
 		}
+		defragged++
 		log.Info(ctx, "defrag completed for member", "endpoint", target.endpoint)
 	}
 
-	// Update annotation with current timestamp
+	// Update cooldown annotation even on partial success to prevent retry storms
+	patch := client.MergeFrom(instance.DeepCopy())
 	if instance.Annotations == nil {
 		instance.Annotations = make(map[string]string)
 	}
 	instance.Annotations[lastDefragAnnotation] = time.Now().UTC().Format(time.RFC3339)
-	if err := r.Update(ctx, instance); err != nil {
+	if err := r.Patch(ctx, instance, patch); err != nil {
 		log.Error(ctx, err, "failed to update last-defrag annotation")
 		return err
 	}
 
-	log.Info(ctx, "auto-defrag completed successfully", "membersDefragged", len(targets))
-	return nil
+	log.Info(ctx, "auto-defrag completed", "membersDefragged", defragged, "failures", len(defragErrors))
+	return goerrors.Join(defragErrors...)
 }
 
 // ensureUnconditionalObjects creates the two services and the PDB
