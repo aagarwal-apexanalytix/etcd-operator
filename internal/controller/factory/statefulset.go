@@ -407,11 +407,16 @@ func getStartupProbe() *corev1.Probe {
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
-				Path: "/readyz?serializable=false",
+				// Use /livez instead of /readyz for startup probe:
+				// etcd 3.6's /readyz panics with "failed to find local ID in
+				// cluster members" when a new member hasn't synced its cluster
+				// membership yet. /livez is safe during bootstrap.
+				Path: "/livez",
 				Port: intstr.FromInt32(2381),
 			},
 		},
-		PeriodSeconds: 5,
+		PeriodSeconds:    5,
+		FailureThreshold: 60, // 5 minutes to allow snapshot sync for large databases
 	}
 }
 
