@@ -161,6 +161,22 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		)
 		return r.updateStatus(ctx, instance)
 	}
+	// Clear stale splitbrain condition if cluster is now healthy
+	existingError := meta.FindStatusCondition(instance.Status.Conditions, etcdaenixiov1alpha1.EtcdConditionError)
+	if existingError != nil &&
+		existingError.Status == metav1.ConditionTrue &&
+		existingError.Reason == string(etcdaenixiov1alpha1.EtcdCondTypeSplitbrain) {
+		meta.SetStatusCondition(
+			&instance.Status.Conditions,
+			metav1.Condition{
+				Type:    etcdaenixiov1alpha1.EtcdConditionError,
+				Status:  metav1.ConditionFalse,
+				Reason:  string(etcdaenixiov1alpha1.EtcdCondTypeSplitbrainResolved),
+				Message: string(etcdaenixiov1alpha1.EtcdErrorCondSplitbrainResolvedMessage),
+			},
+		)
+		log.Info(ctx, "splitbrain condition cleared, all endpoints agree on cluster ID")
+	}
 	// fill conditions
 	if len(instance.Status.Conditions) == 0 {
 		meta.SetStatusCondition(
@@ -215,6 +231,13 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		err := r.configureAuth(ctx, instance)
 		if err != nil {
 			return ctrl.Result{}, err
+		}
+	}
+
+	// Auto-defrag if enabled and cluster is ready
+	if clusterReady && instance.Spec.AutoDefrag != nil && instance.Spec.AutoDefrag.Enabled {
+		if err := r.maybeAutoDefrag(ctx, instance, singleClients, &state); err != nil {
+			log.Error(ctx, err, "auto-defrag failed")
 		}
 	}
 
@@ -619,6 +642,119 @@ func (r *EtcdClusterReconciler) disableAuth(ctx context.Context, authClient clie
 	}
 	log.Debug(ctx, "auth disabled")
 
+	return nil
+}
+
+const (
+	lastDefragAnnotation    = "etcd.aenix.io/last-defrag"
+	defaultFragPercent      = int32(50)
+	defaultMinIntervalMin   = int32(60)
+)
+
+// maybeAutoDefrag checks fragmentation levels and defrags members that exceed the threshold.
+// It enforces a cooldown period between defrag operations using an annotation on the CR.
+func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *etcdaenixiov1alpha1.EtcdCluster, singleClients []*clientv3.Client, state *observables) error {
+	fragThreshold := defaultFragPercent
+	if instance.Spec.AutoDefrag.FragmentationPercent != nil {
+		fragThreshold = *instance.Spec.AutoDefrag.FragmentationPercent
+	}
+	minInterval := defaultMinIntervalMin
+	if instance.Spec.AutoDefrag.MinIntervalMinutes != nil {
+		minInterval = *instance.Spec.AutoDefrag.MinIntervalMinutes
+	}
+
+	// Check cooldown
+	if ann := instance.Annotations[lastDefragAnnotation]; ann != "" {
+		lastDefrag, err := time.Parse(time.RFC3339, ann)
+		if err == nil {
+			if time.Since(lastDefrag) < time.Duration(minInterval)*time.Minute {
+				log.Debug(ctx, "auto-defrag cooldown not elapsed", "lastDefrag", ann, "minIntervalMinutes", minInterval)
+				return nil
+			}
+		}
+	}
+
+	// Identify members that need defrag, separating leader from non-leaders
+	type defragTarget struct {
+		index    int
+		endpoint string
+		fragPct  float64
+		isLeader bool
+	}
+	var targets []defragTarget
+
+	for i, status := range state.etcdStatuses {
+		if status.endpointStatus == nil || status.endpointStatusError != nil {
+			continue
+		}
+		dbSize := status.endpointStatus.DbSize
+		dbSizeInUse := status.endpointStatus.DbSizeInUse
+		if dbSize <= 0 {
+			continue
+		}
+		fragPct := float64(dbSize-dbSizeInUse) / float64(dbSize) * 100
+		if fragPct >= float64(fragThreshold) {
+			endpoint := ""
+			if i < len(singleClients) && singleClients[i] != nil {
+				eps := singleClients[i].Endpoints()
+				if len(eps) > 0 {
+					endpoint = eps[0]
+				}
+			}
+			isLeader := status.endpointStatus.Leader == status.endpointStatus.Header.MemberId
+			targets = append(targets, defragTarget{
+				index:    i,
+				endpoint: endpoint,
+				fragPct:  fragPct,
+				isLeader: isLeader,
+			})
+		}
+	}
+
+	if len(targets) == 0 {
+		return nil
+	}
+
+	// Sort: non-leaders first, leader last
+	slices.SortFunc(targets, func(a, b defragTarget) int {
+		if a.isLeader && !b.isLeader {
+			return 1
+		}
+		if !a.isLeader && b.isLeader {
+			return -1
+		}
+		return 0
+	})
+
+	log.Info(ctx, "auto-defrag triggered", "targets", len(targets), "threshold", fragThreshold)
+
+	// Defrag each target sequentially
+	for _, target := range targets {
+		if target.index >= len(singleClients) || singleClients[target.index] == nil {
+			continue
+		}
+		defragCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		log.Info(ctx, "defragmenting member", "endpoint", target.endpoint, "fragmentation", fmt.Sprintf("%.1f%%", target.fragPct), "isLeader", target.isLeader)
+		_, err := singleClients[target.index].Defragment(defragCtx, target.endpoint)
+		cancel()
+		if err != nil {
+			log.Error(ctx, err, "defrag failed for member", "endpoint", target.endpoint)
+			return fmt.Errorf("defrag failed for %s: %w", target.endpoint, err)
+		}
+		log.Info(ctx, "defrag completed for member", "endpoint", target.endpoint)
+	}
+
+	// Update annotation with current timestamp
+	if instance.Annotations == nil {
+		instance.Annotations = make(map[string]string)
+	}
+	instance.Annotations[lastDefragAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	if err := r.Update(ctx, instance); err != nil {
+		log.Error(ctx, err, "failed to update last-defrag annotation")
+		return err
+	}
+
+	log.Info(ctx, "auto-defrag completed successfully", "membersDefragged", len(targets))
 	return nil
 }
 

@@ -50,6 +50,28 @@ type EtcdClusterSpec struct {
 	// Security describes security settings of etcd (authentication, certificates, rbac)
 	// +optional
 	Security *SecuritySpec `json:"security,omitempty"`
+	// AutoDefrag configures automatic defragmentation of etcd members.
+	// +optional
+	AutoDefrag *AutoDefragSpec `json:"autoDefrag,omitempty"`
+}
+
+// AutoDefragSpec configures automatic defragmentation.
+type AutoDefragSpec struct {
+	// Enabled enables automatic defragmentation.
+	// +optional
+	// +kubebuilder:default:=false
+	Enabled bool `json:"enabled,omitempty"`
+	// FragmentationPercent is the fragmentation threshold (0-100) above which defrag is triggered.
+	// +optional
+	// +kubebuilder:default:=50
+	// +kubebuilder:validation:Minimum:=10
+	// +kubebuilder:validation:Maximum:=90
+	FragmentationPercent *int32 `json:"fragmentationPercent,omitempty"`
+	// MinIntervalMinutes is the minimum time between defrag operations to prevent excessive defrag.
+	// +optional
+	// +kubebuilder:default:=60
+	// +kubebuilder:validation:Minimum:=5
+	MinIntervalMinutes *int32 `json:"minIntervalMinutes,omitempty"`
 }
 
 const (
@@ -68,6 +90,7 @@ const (
 	EtcdCondTypeStatefulSetReady      EtcdCondType = "StatefulSetReady"
 	EtcdCondTypeStatefulSetNotReady   EtcdCondType = "StatefulSetNotReady"
 	EtcdCondTypeSplitbrain            EtcdCondType = "Splitbrain"
+	EtcdCondTypeSplitbrainResolved    EtcdCondType = "SplitbrainResolved"
 )
 
 const (
@@ -76,7 +99,8 @@ const (
 	EtcdReadyCondNegMessage          EtcdCondMessage = "Cluster StatefulSet is not Ready"
 	EtcdReadyCondPosMessage          EtcdCondMessage = "Cluster StatefulSet is Ready"
 	EtcdReadyCondNegWaitingForQuorum EtcdCondMessage = "Waiting for first quorum to be established"
-	EtcdErrorCondSplitbrainMessage   EtcdCondMessage = "Etcd endpoints reporting more than one unique cluster ID"
+	EtcdErrorCondSplitbrainMessage           EtcdCondMessage = "Etcd endpoints reporting more than one unique cluster ID"
+	EtcdErrorCondSplitbrainResolvedMessage   EtcdCondMessage = "All endpoints reporting the same cluster ID"
 )
 
 // EtcdClusterStatus defines the observed state of EtcdCluster
