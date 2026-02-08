@@ -695,6 +695,9 @@ func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *e
 		if dbSize <= 0 {
 			continue
 		}
+		if status.endpointStatus.Header == nil {
+			continue
+		}
 		fragPct := float64(dbSize-dbSizeInUse) / float64(dbSize) * 100
 		if fragPct >= float64(fragThreshold) {
 			endpoint := ""
@@ -703,6 +706,10 @@ func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *e
 				if len(eps) > 0 {
 					endpoint = eps[0]
 				}
+			}
+			if endpoint == "" {
+				log.Debug(ctx, "skipping defrag target with empty endpoint", "index", i)
+				continue
 			}
 			isLeader := status.endpointStatus.Leader == status.endpointStatus.Header.MemberId
 			targets = append(targets, defragTarget{
