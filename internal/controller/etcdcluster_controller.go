@@ -669,11 +669,11 @@ func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *e
 	// Check cooldown
 	if ann := instance.Annotations[lastDefragAnnotation]; ann != "" {
 		lastDefrag, err := time.Parse(time.RFC3339, ann)
-		if err == nil {
-			if time.Since(lastDefrag) < time.Duration(minInterval)*time.Minute {
-				log.Debug(ctx, "auto-defrag cooldown not elapsed", "lastDefrag", ann, "minIntervalMinutes", minInterval)
-				return nil
-			}
+		if err != nil {
+			log.Error(ctx, err, "failed to parse last-defrag annotation, ignoring cooldown", "annotation", ann)
+		} else if time.Since(lastDefrag) < time.Duration(minInterval)*time.Minute {
+			log.Debug(ctx, "auto-defrag cooldown not elapsed", "lastDefrag", ann, "minIntervalMinutes", minInterval)
+			return nil
 		}
 	}
 
