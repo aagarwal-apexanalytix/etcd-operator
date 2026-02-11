@@ -248,11 +248,18 @@ func (r *EtcdRestoreReconciler) reconcileScalingDown(
 		// Check how long we've been in ScalingDown phase
 		scalingDownCond := meta.FindStatusCondition(restore.Status.Conditions, string(etcdaenixiov1alpha1.EtcdRestorePhaseScalingDown))
 		if scalingDownCond != nil && time.Since(scalingDownCond.LastTransitionTime.Time) > 15*time.Second {
-			// Force-delete stuck terminating pods
+			// Force-delete stuck terminating pods (grace-period=0 + remove finalizers)
 			gracePeriod := int64(0)
 			for i := range podList.Items {
 				pod := &podList.Items[i]
 				log.Info(ctx, "force-deleting stuck pod", "pod", pod.Name)
+				// Remove finalizers to unblock deletion
+				if len(pod.Finalizers) > 0 {
+					pod.Finalizers = nil
+					if err := r.Update(ctx, pod); err != nil && !errors.IsNotFound(err) {
+						return ctrl.Result{}, fmt.Errorf("failed to remove finalizers from pod %s: %w", pod.Name, err)
+					}
+				}
 				if err := r.Delete(ctx, pod, &client.DeleteOptions{
 					GracePeriodSeconds: &gracePeriod,
 				}); err != nil && !errors.IsNotFound(err) {
