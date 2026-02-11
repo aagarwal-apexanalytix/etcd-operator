@@ -40,6 +40,7 @@ import (
 
 	etcdaenixiov1alpha1 "github.com/aenix-io/etcd-operator/api/v1alpha1"
 	"github.com/aenix-io/etcd-operator/internal/controller"
+	"github.com/aenix-io/etcd-operator/internal/controller/factory"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -114,6 +115,9 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(ctx, err, "unable to create controller", "controller", "EtcdCluster")
 		os.Exit(1)
+	}
+	if restoreImg := os.Getenv("RESTORE_JOB_IMAGE"); restoreImg != "" {
+		factory.RestoreImage = restoreImg
 	}
 	if err = (&controller.EtcdRestoreReconciler{
 		Client: mgr.GetClient(),

@@ -24,6 +24,9 @@ etcdOperator:
     # -- Service port
     port: 9443
 
+  # -- Image used for restore jobs (must have etcdutl and a shell)
+  restoreJobImage: "harbor.apexanalytix.app/devops/devcontainer:latest"
+
   # -- Empty environment variables section
   envVars: {}
 

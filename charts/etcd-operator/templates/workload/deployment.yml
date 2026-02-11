@@ -66,6 +66,10 @@ spec:
               fieldRef:
                 apiVersion: v1
                 fieldPath: metadata.namespace
+          {{- if .Values.etcdOperator.restoreJobImage }}
+          - name: RESTORE_JOB_IMAGE
+            value: {{ .Values.etcdOperator.restoreJobImage | quote }}
+          {{- end }}
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: cert
