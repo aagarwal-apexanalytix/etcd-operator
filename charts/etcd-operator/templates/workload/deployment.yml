@@ -70,6 +70,10 @@ spec:
           - name: RESTORE_JOB_IMAGE
             value: {{ .Values.etcdOperator.restoreJobImage | quote }}
           {{- end }}
+          {{- if .Values.etcdOperator.restoreJobImagePullPolicy }}
+          - name: RESTORE_JOB_IMAGE_PULL_POLICY
+            value: {{ .Values.etcdOperator.restoreJobImagePullPolicy | quote }}
+          {{- end }}
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: cert

@@ -39,6 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	etcdaenixiov1alpha1 "github.com/aenix-io/etcd-operator/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/aenix-io/etcd-operator/internal/controller"
 	"github.com/aenix-io/etcd-operator/internal/controller/factory"
 	// +kubebuilder:scaffold:imports
@@ -118,6 +120,9 @@ func main() {
 	}
 	if restoreImg := os.Getenv("RESTORE_JOB_IMAGE"); restoreImg != "" {
 		factory.RestoreImage = restoreImg
+	}
+	if pullPolicy := os.Getenv("RESTORE_JOB_IMAGE_PULL_POLICY"); pullPolicy != "" {
+		factory.RestoreImagePullPolicy = corev1.PullPolicy(pullPolicy)
 	}
 	if err = (&controller.EtcdRestoreReconciler{
 		Client: mgr.GetClient(),

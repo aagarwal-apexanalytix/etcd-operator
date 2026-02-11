@@ -33,6 +33,9 @@ const DefaultRestoreImage = "harbor.apexanalytix.app/devops/devcontainer:latest"
 // It can be overridden via Helm values / environment.
 var RestoreImage = DefaultRestoreImage
 
+// RestoreImagePullPolicy is the pull policy for the restore job image.
+var RestoreImagePullPolicy = corev1.PullIfNotPresent
+
 // BuildRestoreJob creates a Job that runs etcdutl snapshot restore for each
 // cluster member, populating their data PVCs from a snapshot stored on a backup PVC.
 func BuildRestoreJob(
@@ -133,7 +136,8 @@ func BuildRestoreJob(
 					Containers: []corev1.Container{
 						{
 							Name:         "restore",
-							Image:        image,
+							Image:           image,
+							ImagePullPolicy: RestoreImagePullPolicy,
 							Command:      []string{"/bin/sh", "-c", script.String()},
 							VolumeMounts: volumeMounts,
 						},
