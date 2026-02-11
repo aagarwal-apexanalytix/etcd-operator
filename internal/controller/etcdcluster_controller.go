@@ -280,7 +280,21 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Message: string(message),
 		},
 	)
-	return r.updateStatus(ctx, instance)
+	result, err := r.updateStatus(ctx, instance)
+	if err != nil {
+		return result, err
+	}
+
+	// When auto-defrag is enabled, schedule periodic reconciliation so the
+	// controller rechecks fragmentation even when no other events occur.
+	if instance.Spec.AutoDefrag != nil && instance.Spec.AutoDefrag.Enabled {
+		interval := time.Duration(defaultMinIntervalMin) * time.Minute
+		if instance.Spec.AutoDefrag.MinIntervalMinutes != nil {
+			interval = time.Duration(*instance.Spec.AutoDefrag.MinIntervalMinutes) * time.Minute
+		}
+		result.RequeueAfter = interval
+	}
+	return result, nil
 }
 
 // checkAndDeleteStatefulSetIfNecessary deletes the StatefulSet if the specified storage size has changed.
