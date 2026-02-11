@@ -59,7 +59,7 @@ func BuildRestoreJob(
 	}
 	initialCluster := strings.Join(members, ",")
 
-	// Build restore script
+	// Build restore script (uses /tools/etcdutl copied by init container)
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\nset -e\n")
 	for i := 0; i < replicas; i++ {
@@ -70,7 +70,7 @@ func BuildRestoreJob(
 		// Remove existing data directory if present (idempotent re-run)
 		script.WriteString(fmt.Sprintf("rm -rf %s\n", dataDir))
 		script.WriteString(fmt.Sprintf(
-			"etcdutl snapshot restore /backup/%s"+
+			"/tools/etcdutl snapshot restore /backup/%s"+
 				" --name %s"+
 				" --data-dir %s"+
 				" --initial-cluster %s"+
@@ -102,6 +102,18 @@ func BuildRestoreJob(
 			},
 		},
 	}
+
+	// Add tools emptyDir volume for sharing etcdutl binary
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		Name:      "tools",
+		MountPath: "/tools",
+	})
+	volumes = append(volumes, corev1.Volume{
+		Name: "tools",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	})
 
 	pvcName := GetPVCName(cluster)
 	for i := 0; i < replicas; i++ {
@@ -135,10 +147,20 @@ func BuildRestoreJob(
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyOnFailure,
+					InitContainers: []corev1.Container{
+						{
+							Name:    "copy-etcdutl",
+							Image:   image,
+							Command: []string{"cp", "/usr/local/bin/etcdutl", "/tools/etcdutl"},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "tools", MountPath: "/tools"},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:         "restore",
-							Image:        image,
+							Image:        "alpine:3.20",
 							Command:      []string{"/bin/sh", "-c", script.String()},
 							VolumeMounts: volumeMounts,
 						},
