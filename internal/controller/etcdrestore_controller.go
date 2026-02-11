@@ -54,6 +54,7 @@ type EtcdRestoreReconciler struct {
 // +kubebuilder:rbac:groups=etcd.aenix.io,resources=etcdclusters,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch
 
@@ -205,6 +206,7 @@ func (r *EtcdRestoreReconciler) reconcilePending(
 }
 
 // reconcileScalingDown waits for all pods to be terminated.
+// If pods are stuck in Terminating for more than 15 seconds, they are force-deleted.
 func (r *EtcdRestoreReconciler) reconcileScalingDown(
 	ctx context.Context,
 	restore *etcdaenixiov1alpha1.EtcdRestore,
@@ -230,7 +232,24 @@ func (r *EtcdRestoreReconciler) reconcileScalingDown(
 		client.MatchingLabels(factory.PodLabels(cluster))); err != nil {
 		return ctrl.Result{}, err
 	}
+
 	if len(podList.Items) > 0 {
+		// Check how long we've been in ScalingDown phase
+		scalingDownCond := meta.FindStatusCondition(restore.Status.Conditions, string(etcdaenixiov1alpha1.EtcdRestorePhaseScalingDown))
+		if scalingDownCond != nil && time.Since(scalingDownCond.LastTransitionTime.Time) > 15*time.Second {
+			// Force-delete stuck terminating pods
+			gracePeriod := int64(0)
+			for i := range podList.Items {
+				pod := &podList.Items[i]
+				log.Info(ctx, "force-deleting stuck pod", "pod", pod.Name)
+				if err := r.Delete(ctx, pod, &client.DeleteOptions{
+					GracePeriodSeconds: &gracePeriod,
+				}); err != nil && !errors.IsNotFound(err) {
+					return ctrl.Result{}, fmt.Errorf("failed to force-delete pod %s: %w", pod.Name, err)
+				}
+			}
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
@@ -526,7 +545,7 @@ func (r *EtcdRestoreReconciler) failRestore(
 	return ctrl.Result{}, nil
 }
 
-// transitionPhase updates the restore status to a new phase.
+// transitionPhase updates the restore status to a new phase and records the transition time.
 func (r *EtcdRestoreReconciler) transitionPhase(
 	ctx context.Context,
 	restore *etcdaenixiov1alpha1.EtcdRestore,
@@ -534,6 +553,13 @@ func (r *EtcdRestoreReconciler) transitionPhase(
 ) (ctrl.Result, error) {
 	log.Info(ctx, "transitioning restore phase", "from", restore.Status.Phase, "to", phase)
 	restore.Status.Phase = phase
+	meta.SetStatusCondition(&restore.Status.Conditions, metav1.Condition{
+		Type:               string(phase),
+		Status:             metav1.ConditionTrue,
+		Reason:             "PhaseEntered",
+		Message:            fmt.Sprintf("Entered phase %s", phase),
+		LastTransitionTime: metav1.Now(),
+	})
 	if err := r.Status().Update(ctx, restore); err != nil {
 		return ctrl.Result{}, err
 	}
