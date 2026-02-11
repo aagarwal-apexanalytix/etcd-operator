@@ -247,31 +247,51 @@ func (r *EtcdRestoreReconciler) reconcilePreparingPVCs(
 	log.Info(ctx, "preparing PVCs for restore", "cluster", cluster.Name)
 
 	if restore.Spec.StorageClassOverride != nil {
-		// Delete existing data PVCs
-		if err := factory.DeleteDataPVCs(ctx, cluster, r.Client); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		// Wait for all PVCs to be gone
-		gone, err := factory.AllDataPVCsGone(ctx, cluster, r.Client)
+		// Check if PVCs already exist with the target StorageClass (from a previous reconcile)
+		exist, err := factory.AllDataPVCsExist(ctx, cluster, r.Client)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if !gone {
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
 
-		// Create new PVCs with overridden StorageClass
-		if err := factory.CreateDataPVCs(ctx, cluster, *restore.Spec.StorageClassOverride, r.Client); err != nil {
-			return ctrl.Result{}, err
-		}
+		if exist {
+			// PVCs exist — check if they're using the correct StorageClass and are Bound
+			correctSC, err := factory.AllDataPVCsHaveStorageClass(ctx, cluster, *restore.Spec.StorageClassOverride, r.Client)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
 
-		// Wait for PVCs to bind
-		bound, err := factory.AllDataPVCsBound(ctx, cluster, r.Client)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if !bound {
+			if correctSC {
+				// PVCs exist with correct SC, just wait for Bound
+				bound, err := factory.AllDataPVCsBound(ctx, cluster, r.Client)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if !bound {
+					return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+				}
+				// All good, proceed to restoring
+			} else {
+				// PVCs exist but with wrong StorageClass — delete them
+				if err := factory.DeleteDataPVCs(ctx, cluster, r.Client); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+		} else {
+			// No PVCs exist — check if we need to wait for deletion to finish, or create new ones
+			gone, err := factory.AllDataPVCsGone(ctx, cluster, r.Client)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if !gone {
+				// Still waiting for old PVCs to be deleted
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+
+			// Create new PVCs with overridden StorageClass
+			if err := factory.CreateDataPVCs(ctx, cluster, *restore.Spec.StorageClassOverride, r.Client); err != nil {
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 	} else {

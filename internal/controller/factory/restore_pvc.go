@@ -142,6 +142,23 @@ func AllDataPVCsBound(ctx context.Context, cluster *etcdaenixiov1alpha1.EtcdClus
 	return true, nil
 }
 
+// AllDataPVCsHaveStorageClass returns true if all data PVCs use the given StorageClass.
+func AllDataPVCsHaveStorageClass(ctx context.Context, cluster *etcdaenixiov1alpha1.EtcdCluster, storageClassName string, cli client.Client) (bool, error) {
+	replicas := int(*cluster.Spec.Replicas)
+	for i := 0; i < replicas; i++ {
+		pvc := &corev1.PersistentVolumeClaim{}
+		name := dataPVCName(cluster, i)
+		err := cli.Get(ctx, types.NamespacedName{Name: name, Namespace: cluster.Namespace}, pvc)
+		if err != nil {
+			return false, fmt.Errorf("failed to get PVC %s: %w", name, err)
+		}
+		if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != storageClassName {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // AllDataPVCsExist returns true if all data PVCs for the cluster exist.
 func AllDataPVCsExist(ctx context.Context, cluster *etcdaenixiov1alpha1.EtcdCluster, cli client.Client) (bool, error) {
 	replicas := int(*cluster.Spec.Replicas)
