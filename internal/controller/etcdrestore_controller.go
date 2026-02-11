@@ -222,6 +222,17 @@ func (r *EtcdRestoreReconciler) reconcileScalingDown(
 		return ctrl.Result{}, err
 	}
 
+	// Re-enforce scale-down in case STS was re-scaled (e.g., operator restart)
+	zero := int32(0)
+	if sts.Spec.Replicas == nil || *sts.Spec.Replicas != 0 {
+		log.Info(ctx, "re-enforcing StatefulSet scale to zero", "cluster", cluster.Name)
+		sts.Spec.Replicas = &zero
+		if err := r.Update(ctx, sts); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
 	if sts.Status.Replicas != 0 || sts.Status.ReadyReplicas != 0 {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
