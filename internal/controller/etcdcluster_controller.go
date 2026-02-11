@@ -90,6 +90,12 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, nil
 	}
 
+	// If cluster is paused for restore, skip reconciliation
+	if _, paused := instance.Annotations[etcdaenixiov1alpha1.EtcdClusterPausedAnnotation]; paused {
+		log.Info(ctx, "cluster paused for restore, skipping reconciliation")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	state := observables{}
 	state.instance = instance
 
@@ -669,11 +675,11 @@ func (r *EtcdClusterReconciler) maybeAutoDefrag(ctx context.Context, instance *e
 	// Check cooldown
 	if ann := instance.Annotations[lastDefragAnnotation]; ann != "" {
 		lastDefrag, err := time.Parse(time.RFC3339, ann)
-		if err == nil {
-			if time.Since(lastDefrag) < time.Duration(minInterval)*time.Minute {
-				log.Debug(ctx, "auto-defrag cooldown not elapsed", "lastDefrag", ann, "minIntervalMinutes", minInterval)
-				return nil
-			}
+		if err != nil {
+			log.Error(ctx, err, "failed to parse last-defrag annotation, ignoring cooldown", "annotation", ann)
+		} else if time.Since(lastDefrag) < time.Duration(minInterval)*time.Minute {
+			log.Debug(ctx, "auto-defrag cooldown not elapsed", "lastDefrag", ann, "minIntervalMinutes", minInterval)
+			return nil
 		}
 	}
 

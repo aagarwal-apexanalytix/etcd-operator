@@ -1,0 +1,12 @@
+apiVersion: etcd.aenix.io/v1alpha1
+kind: EtcdRestore
+metadata:
+  name: restore-from-backup
+  namespace: default
+spec:
+  clusterName: etcd
+  backupSource:
+    pvc:
+      claimName: etcd-backup
+      snapshotFile: etcd-snapshot-20250429161500.db
+  # storageClassOverride: "fast-nvme"   # optional

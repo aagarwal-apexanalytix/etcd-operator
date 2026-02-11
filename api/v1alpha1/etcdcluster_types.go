@@ -24,6 +24,9 @@ import (
 
 const DefaultEtcdImage = "quay.io/coreos/etcd:v3.5.12"
 
+// EtcdClusterPausedAnnotation is set on an EtcdCluster to pause reconciliation during restore.
+const EtcdClusterPausedAnnotation = "etcd.aenix.io/paused-for-restore"
+
 // EtcdClusterSpec defines the desired state of EtcdCluster
 type EtcdClusterSpec struct {
 	// Replicas is the count of etcd instances in cluster.
