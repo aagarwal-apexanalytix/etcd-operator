@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/etcd.aenix.io_etcdclusters.yaml
+- bases/etcd.aenix.io_etcdrestores.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

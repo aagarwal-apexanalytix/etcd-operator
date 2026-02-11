@@ -90,6 +90,12 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, nil
 	}
 
+	// If cluster is paused for restore, skip reconciliation
+	if _, paused := instance.Annotations[etcdaenixiov1alpha1.EtcdClusterPausedAnnotation]; paused {
+		log.Info(ctx, "cluster paused for restore, skipping reconciliation")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	state := observables{}
 	state.instance = instance
 

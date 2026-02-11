@@ -115,6 +115,13 @@ func main() {
 		log.Error(ctx, err, "unable to create controller", "controller", "EtcdCluster")
 		os.Exit(1)
 	}
+	if err = (&controller.EtcdRestoreReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		log.Error(ctx, err, "unable to create controller", "controller", "EtcdRestore")
+		os.Exit(1)
+	}
 	if !flags.DisableWebhooks {
 		if err = (&etcdaenixiov1alpha1.EtcdCluster{}).SetupWebhookWithManager(mgr); err != nil {
 			log.Error(ctx, err, "unable to create webhook", "webhook", "EtcdCluster")
