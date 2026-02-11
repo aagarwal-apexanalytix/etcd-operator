@@ -62,6 +62,29 @@ rules:
     resources:
     - persistentvolumeclaims
     verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - delete
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - batch
+    resources:
+    - jobs
+    verbs:
+    - create
+    - delete
     - get
     - list
     - patch
@@ -96,6 +119,32 @@ rules:
       - etcd.aenix.io
     resources:
       - etcdclusters/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - etcd.aenix.io
+    resources:
+      - etcdrestores
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - etcd.aenix.io
+    resources:
+      - etcdrestores/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - etcd.aenix.io
+    resources:
+      - etcdrestores/status
     verbs:
       - get
       - patch
