@@ -104,7 +104,7 @@ kubeRbacProxy:
   image:
 
     # -- Image repository
-    repository: gcr.io/kubebuilder/kube-rbac-proxy
+    repository: registry.k8s.io/kubebuilder/kube-rbac-proxy
 
     # -- Image pull policy
     pullPolicy: IfNotPresent
